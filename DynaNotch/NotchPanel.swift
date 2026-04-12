@@ -7,6 +7,8 @@ class NotchPanel: NSPanel {
     // Window dimensions
     static let expandedExtraHeight: CGFloat = 110
     static let overlayWidth: CGFloat = 560
+    static let pillPadding: CGFloat = 100       // pillWidth = notchWidth + pillPadding
+    static let expandedPanelWidth: CGFloat = 480
 
     init() {
         super.init(
@@ -26,7 +28,7 @@ class NotchPanel: NSPanel {
         ignoresMouseEvents = false
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     /// Reads notch geometry from the main screen and repositions the panel.

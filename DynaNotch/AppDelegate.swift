@@ -6,6 +6,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         windowController = NotchWindowController()
-        windowController?.showWindow(nil)
+        windowController?.window?.orderFrontRegardless()
     }
 }

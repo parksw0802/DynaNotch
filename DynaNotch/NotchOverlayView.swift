@@ -3,102 +3,48 @@ import SwiftUI
 struct NotchOverlayView: View {
     var viewModel: NotchViewModel
 
-    // Pill section width on each side of the notch in expanded state
-    private var pillSectionWidth: CGFloat {
-        (NotchPanel.overlayWidth - viewModel.notchWidth) / 2
-    }
+    // 노치를 관통하는 단일 pill 너비 (노치 + 양옆 여백)
+    private var pillWidth: CGFloat { viewModel.notchWidth + NotchPanel.pillPadding }
+    // 확장 시 패널 너비
+    private let expandedWidth: CGFloat = NotchPanel.expandedPanelWidth
+
+    private var activeWidth:  CGFloat { viewModel.isExpanded ? expandedWidth : pillWidth }
+    private var activeHeight: CGFloat { viewModel.isExpanded ? viewModel.notchHeight + NotchPanel.expandedExtraHeight : viewModel.notchHeight }
+    private var bottomRadius: CGFloat { viewModel.isExpanded ? 20 : viewModel.notchHeight / 3 }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            if viewModel.isExpanded {
-                expandedView
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.96, anchor: .top).combined(with: .opacity),
-                        removal:   .scale(scale: 0.96, anchor: .top).combined(with: .opacity)
-                    ))
-            } else {
-                collapsedView
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.96, anchor: .top).combined(with: .opacity),
-                        removal:   .scale(scale: 0.96, anchor: .top).combined(with: .opacity)
-                    ))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    // MARK: - Collapsed
-
-    private var collapsedView: some View {
-        HStack(spacing: viewModel.notchWidth) {
-            leftPillContent
-                .frame(width: 120, height: viewModel.notchHeight)
-                .background(Color.black)
-                .clipShape(Capsule())
-
-            rightPillContent
-                .frame(width: 120, height: viewModel.notchHeight)
-                .background(Color.black)
-                .clipShape(Capsule())
-        }
-        .onHover { if $0 { viewModel.expand() } }
-    }
-
-    // MARK: - Expanded
-
-    private var expandedView: some View {
         VStack(spacing: 0) {
-            // Top row: left section + notch gap + right section
-            HStack(spacing: viewModel.notchWidth) {
-                leftPillContent
-                    .frame(width: pillSectionWidth, height: viewModel.notchHeight)
-                    .background(
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 16,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: 16
-                        )
-                        .fill(Color.black)
-                    )
-
-                rightPillContent
-                    .frame(width: pillSectionWidth, height: viewModel.notchHeight)
-                    .background(
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 16,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: 16
-                        )
-                        .fill(Color.black)
-                    )
+            // 상단 pill 콘텐츠
+            HStack {
+                leftPillContent.padding(.leading, 16)
+                Spacer()
+                rightPillContent.padding(.trailing, 16)
             }
+            .frame(width: activeWidth, height: viewModel.notchHeight)
 
-            // Content panel — connects the two pill sections at the bottom
-            expandedContent
-                .frame(width: NotchPanel.overlayWidth, height: NotchPanel.expandedExtraHeight)
-                .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 20,
-                        bottomTrailingRadius: 20,
-                        topTrailingRadius: 0
-                    )
-                    .fill(Color.black)
-                )
+            // 확장 콘텐츠 (항상 레이아웃에 존재, opacity로 fade)
+            HStack(alignment: .center) {
+                leftExpandedContent.padding(.leading, 20)
+                Spacer()
+                rightExpandedContent.padding(.trailing, 20)
+            }
+            .frame(width: expandedWidth, height: NotchPanel.expandedExtraHeight)
+            .opacity(viewModel.isExpanded ? 1 : 0)
         }
-        .onHover { if !$0 { viewModel.collapse() } }
-    }
-
-    private var expandedContent: some View {
-        HStack(alignment: .center) {
-            leftExpandedContent
-                .padding(.leading, 20)
-            Spacer()
-            rightExpandedContent
-                .padding(.trailing, 20)
-        }
+        // 단일 frame이 width·height 동시에 spring 애니메이션 → 하나의 shape로 확장
+        .frame(width: activeWidth, height: activeHeight, alignment: .top)
+        .clipped()
+        .background(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: bottomRadius,
+                bottomTrailingRadius: bottomRadius,
+                topTrailingRadius: 0
+            )
+            .fill(Color.black)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea()
     }
 
     // MARK: - Left Pill Content
@@ -108,8 +54,8 @@ struct NotchOverlayView: View {
         switch viewModel.leftState {
         case .idle:
             Circle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 7, height: 7)
+                .fill(Color.white.opacity(0.2))
+                .frame(width: 6, height: 6)
 
         case .music(let title, _):
             HStack(spacing: 5) {
@@ -121,7 +67,6 @@ struct NotchOverlayView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 10)
 
         case .terminal(let running, _):
             Image(systemName: running ? "gear" : "checkmark")
@@ -144,7 +89,7 @@ struct NotchOverlayView: View {
         case .idle:
             Text("DynaNotch")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.35))
+                .foregroundStyle(.white.opacity(0.3))
 
         case .music(let title, let artist):
             VStack(alignment: .leading, spacing: 3) {
@@ -160,12 +105,8 @@ struct NotchOverlayView: View {
 
         case .terminal(let running, let success):
             HStack(spacing: 6) {
-                Image(
-                    systemName: running
-                        ? "gear"
-                        : (success == true ? "checkmark.circle.fill" : "xmark.circle.fill")
-                )
-                .foregroundStyle(running ? .yellow : (success == true ? Color.green : Color.red))
+                Image(systemName: running ? "gear" : (success == true ? "checkmark.circle.fill" : "xmark.circle.fill"))
+                    .foregroundStyle(running ? .yellow : (success == true ? Color.green : Color.red))
                 Text(running ? "실행 중..." : (success == true ? "완료" : "실패"))
                     .font(.system(size: 13))
                     .foregroundStyle(.white)
@@ -192,7 +133,6 @@ struct NotchOverlayView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white)
             }
-            .padding(.horizontal, 10)
 
         case .slack(let channel, _):
             HStack(spacing: 4) {
@@ -204,7 +144,6 @@ struct NotchOverlayView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 10)
 
         case .kakao(let sender, _):
             HStack(spacing: 4) {
@@ -216,7 +155,6 @@ struct NotchOverlayView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 10)
         }
     }
 
@@ -262,20 +200,24 @@ struct NotchOverlayView: View {
     }
 }
 
+
 // MARK: - Preview
 
 #Preview("Collapsed – Idle") {
-    NotchOverlayView(viewModel: NotchViewModel())
-        .frame(width: 560, height: 150)
-        .background(Color(white: 0.15))
+    NotchOverlayView(viewModel: {
+        let vm = NotchViewModel(); vm.notchWidth = 162; vm.notchHeight = 37; return vm
+    }())
+    .frame(width: 560, height: 150)
+    .background(Color(white: 0.2))
 }
 
 #Preview("Expanded – Music + Weather") {
     let vm = NotchViewModel()
+    vm.notchWidth = 162; vm.notchHeight = 37
     vm.isExpanded = true
     vm.leftState = .music(title: "Blinding Lights", artist: "The Weeknd")
     vm.rightContent = .weather(temp: "18°")
     return NotchOverlayView(viewModel: vm)
-        .frame(width: 560, height: 150)
-        .background(Color(white: 0.15))
+        .frame(width: 560, height: 160)
+        .background(Color(white: 0.2))
 }
