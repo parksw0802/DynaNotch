@@ -97,9 +97,24 @@ final class MusicModule {
     // MARK: - Playback Controls
 
     private func setupActions() {
-        viewModel?.playPauseAction = { [weak self] in self?.sendCommand("playpause") }
-        viewModel?.previousAction  = { [weak self] in self?.sendCommand("previous track") }
-        viewModel?.nextAction      = { [weak self] in self?.sendCommand("next track") }
+        viewModel?.playPauseAction    = { [weak self] in self?.sendCommand("playpause") }
+        viewModel?.previousAction     = { [weak self] in self?.sendCommand("previous track") }
+        viewModel?.nextAction         = { [weak self] in self?.sendCommand("next track") }
+        viewModel?.skipBackwardAction = { [weak self] in self?.seekRelative(-5) }
+        viewModel?.skipForwardAction  = { [weak self] in self?.seekRelative(5) }
+    }
+
+    private func seekRelative(_ seconds: Int) {
+        let appName = activeApp == .spotify ? "Spotify" : "Music"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let script = NSAppleScript(source: """
+                tell application "\(appName)"
+                    set player position to (player position + \(seconds))
+                end tell
+            """)
+            var error: NSDictionary?
+            script?.executeAndReturnError(&error)
+        }
     }
 
     private func sendCommand(_ command: String) {

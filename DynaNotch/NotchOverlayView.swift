@@ -22,14 +22,10 @@ struct NotchOverlayView: View {
             }
             .frame(width: activeWidth, height: viewModel.notchHeight)
 
-            // 확장 콘텐츠 (항상 레이아웃에 존재, opacity로 fade)
-            HStack(alignment: .center) {
-                leftExpandedContent.padding(.leading, 20)
-                Spacer()
-                rightExpandedContent.padding(.trailing, 20)
-            }
-            .frame(width: expandedWidth, height: NotchPanel.expandedExtraHeight)
-            .opacity(viewModel.isExpanded ? 1 : 0)
+            // 확장 콘텐츠 — 수평 페이저 (항상 레이아웃에 존재, opacity로 fade)
+            expandedPager
+                .frame(width: expandedWidth, height: NotchPanel.expandedExtraHeight)
+                .opacity(viewModel.isExpanded ? 1 : 0)
         }
         // 단일 frame이 width·height 동시에 spring 애니메이션 → 하나의 shape로 확장
         .frame(width: activeWidth, height: activeHeight, alignment: .top)
@@ -47,6 +43,71 @@ struct NotchOverlayView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
+    }
+
+    // MARK: - Expanded Pager
+
+    private var expandedPager: some View {
+        // ZStack 대신 frame(alignment: .leading) 사용
+        // → HStack 리딩이 항상 프레임 리딩에 고정돼 page 0이 기본으로 노출됨
+        HStack(spacing: 0) {
+            // Page 0 — 음악
+            HStack(alignment: .center) {
+                leftExpandedContent.padding(.leading, 20)
+                Spacer()
+            }
+            .frame(width: expandedWidth)
+
+            // Page 1 — 알림 (Phase 3 구현 예정)
+            notificationsPage.frame(width: expandedWidth)
+
+            // Page 2 — 날씨 (Phase 4 구현 예정)
+            weatherPage.frame(width: expandedWidth)
+        }
+        .offset(x: -CGFloat(viewModel.expandedPage) * expandedWidth)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: viewModel.expandedPage)
+        .frame(width: expandedWidth, alignment: .leading)   // 리딩 고정 + 너비 제한
+        .clipped()
+        .onTapGesture {}    // 탭이 부모 collapse gesture로 전파되지 않도록 소비
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(i == viewModel.expandedPage ? Color.white : Color.white.opacity(0.3))
+                        .frame(width: 4, height: 4)
+                        .animation(.easeInOut(duration: 0.2), value: viewModel.expandedPage)
+                }
+            }
+            .padding(.bottom, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var notificationsPage: some View {
+        // Phase 3에서 Slack / 카카오톡 알림 구현 예정
+        VStack(spacing: 6) {
+            Image(systemName: "bell.slash")
+                .font(.system(size: 20))
+                .foregroundStyle(.white.opacity(0.3))
+            Text("알림 없음")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var weatherPage: some View {
+        // Phase 4에서 Open-Meteo API 연동 예정
+        VStack(spacing: 6) {
+            Image(systemName: "cloud")
+                .font(.system(size: 20))
+                .foregroundStyle(.white.opacity(0.3))
+            Text("날씨 준비 중")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Left Pill Content
@@ -87,9 +148,15 @@ struct NotchOverlayView: View {
     private var leftExpandedContent: some View {
         switch viewModel.leftState {
         case .idle:
-            Text("DynaNotch")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.3))
+            VStack(spacing: 6) {
+                Image(systemName: "music.note.slash")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white.opacity(0.3))
+                Text("재생 중인 음악 없음")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .music(let title, let artist):
             HStack(spacing: 10) {
@@ -104,11 +171,18 @@ struct NotchOverlayView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                     // 재생 컨트롤
-                    HStack(spacing: 20) {
+                    HStack(spacing: 14) {
                         Button { viewModel.previousAction?() } label: {
                             Image(systemName: "backward.fill")
                                 .font(.system(size: 13))
                                 .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button { viewModel.skipBackwardAction?() } label: {
+                            Image(systemName: "gobackward.5")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.7))
                         }
                         .buttonStyle(.plain)
 
@@ -117,6 +191,13 @@ struct NotchOverlayView: View {
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundStyle(.white)
                                 .frame(width: 20)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button { viewModel.skipForwardAction?() } label: {
+                            Image(systemName: "goforward.5")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.7))
                         }
                         .buttonStyle(.plain)
 
@@ -141,10 +222,93 @@ struct NotchOverlayView: View {
             }
 
         case .screenshot:
-            Text("저장 위치를 선택하세요")
-                .font(.system(size: 13))
-                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                    Text("스크린샷 저장 위치")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+
+                HStack(spacing: 8) {
+                    // 클립보드로 복사
+                    Button {
+                        viewModel.copyScreenshotAction?()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "doc.on.clipboard.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Text("Clipboard")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+
+                    // 기본 저장 경로 (com.apple.screencapture 설정값)
+                    if let saveDir = viewModel.screenshotSaveDir {
+                        screenshotFolderButton(
+                            label: saveDir.lastPathComponent,
+                            icon: "folder.fill",
+                            folder: saveDir
+                        )
+                    }
+                    // 삭제
+                    Button {
+                        viewModel.deleteScreenshotAction?()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color.red.opacity(0.85))
+                            Text("Delete")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
+    }
+
+    // MARK: - Screenshot helpers
+
+    private func screenshotFolder(_ dir: FileManager.SearchPathDirectory) -> URL {
+        FileManager.default.urls(for: dir, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    @ViewBuilder
+    private func screenshotFolderButton(label: String, icon: String, folder: URL) -> some View {
+        Button {
+            viewModel.saveScreenshotAction?(folder)
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Right Pill Content
@@ -186,46 +350,6 @@ struct NotchOverlayView: View {
         }
     }
 
-    // MARK: - Right Expanded Content
-
-    @ViewBuilder
-    private var rightExpandedContent: some View {
-        switch viewModel.rightContent {
-        case .weather(let temp):
-            HStack(spacing: 6) {
-                Image(systemName: "cloud.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white.opacity(0.65))
-                Text(temp)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-
-        case .slack(let channel, let preview):
-            VStack(alignment: .trailing, spacing: 3) {
-                Text("#\(channel)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(preview)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
-            }
-
-        case .kakao(let sender, let preview):
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(sender)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(preview)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
-            }
-        }
-    }
 }
 
 

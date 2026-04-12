@@ -24,6 +24,8 @@ final class NotchViewModel {
         case kakao(sender: String, preview: String)
     }
 
+    var expandedPage: Int = 0
+
     var leftState: LeftState = .idle
     var musicArtwork: NSImage? = nil
     var musicColors: [Color] = [.white]
@@ -31,9 +33,18 @@ final class NotchViewModel {
     var rightContent: RightContent = .weather(temp: "--°")
 
     // MusicModule이 주입하는 재생 컨트롤 클로저
-    var playPauseAction: (() -> Void)?
-    var previousAction:  (() -> Void)?
-    var nextAction:      (() -> Void)?
+    var playPauseAction:    (() -> Void)?
+    var previousAction:     (() -> Void)?
+    var nextAction:         (() -> Void)?
+    var skipBackwardAction: (() -> Void)?
+    var skipForwardAction:  (() -> Void)?
+
+    // ScreenshotModule
+    var screenshotURL: URL? = nil
+    var screenshotSaveDir: URL? = nil       // 실제 스크린샷 저장 디렉토리 (ScreenshotModule이 주입)
+    var saveScreenshotAction: ((URL) -> Void)? = nil
+    var copyScreenshotAction: (() -> Void)? = nil
+    var deleteScreenshotAction: (() -> Void)? = nil
 
     func expand() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
@@ -45,5 +56,6 @@ final class NotchViewModel {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             isExpanded = false
         }
+        expandedPage = 0
     }
 }

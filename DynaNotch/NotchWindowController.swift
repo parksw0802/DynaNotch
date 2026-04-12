@@ -6,13 +6,11 @@ final class NotchWindowController: NSWindowController {
     private var monitors: [Any] = []
     private var lastClickDate: Date = .distantPast
     private var musicModule: MusicModule?
+    private var screenshotModule: ScreenshotModule?
 
-    // 드래그 상태
-    private var mouseDownLocation: NSPoint? = nil
-    private var dragStartVolume: Float = 0
-    private var isDragging = false
-    private let dragThreshold: CGFloat = 4      // 이 픽셀 이상 이동하면 드래그로 판정
-    private let volumeSensitivity: Float = 200  // 드래그 픽셀 당 볼륨 변화 분모
+    // 스크롤 페이지 전환 상태
+    private var scrollAccumX: CGFloat = 0
+    private var didSwitchPageThisGesture = false
 
     init() {
         let panel = NotchPanel()
@@ -33,6 +31,7 @@ final class NotchWindowController: NSWindowController {
         setupClickMonitor()
         observeExpansion()
         musicModule = MusicModule(viewModel: viewModel)
+        screenshotModule = ScreenshotModule(viewModel: viewModel)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -61,84 +60,79 @@ final class NotchWindowController: NSWindowController {
         window?.ignoresMouseEvents = !viewModel.isExpanded
     }
 
-    // MARK: - Event monitors (click + drag)
+    // MARK: - Event monitors
 
     private func setupClickMonitor() {
-        // 축소 상태(ignoresMouseEvents=true): 이벤트가 다른 프로세스로 감 → global monitor
-        // 확장 상태(ignoresMouseEvents=false): 이벤트가 우리 프로세스로 감 → local monitor
-        addMonitor(global: .leftMouseDown)    { [weak self] in self?.onMouseDown() }
-        addMonitor(global: .leftMouseDragged) { [weak self] in self?.onMouseDragged() }
-        addMonitor(global: .leftMouseUp)      { [weak self] in self?.onMouseUp() }
-        addMonitor(local:  .leftMouseDown)    { [weak self] in self?.onMouseDown() }
-        addMonitor(local:  .leftMouseDragged) { [weak self] in self?.onMouseDragged() }
-        addMonitor(local:  .leftMouseUp)      { [weak self] in self?.onMouseUp() }
+        // 클릭: 축소 상태는 global, 확장 상태는 SwiftUI onTapGesture가 처리
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
+            self?.onMouseDown()
+        }) { monitors.append(m) }
+
+        // 스크롤: 볼륨(세로) + 페이지 전환(가로)
+        // 축소 상태(global) + 확장 상태(local) 모두 대응
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] event in
+            self?.handleScroll(event)
+        }) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] event in
+            self?.handleScroll(event); return event
+        }) { monitors.append(m) }
     }
 
-    private func addMonitor(global mask: NSEvent.EventTypeMask, handler: @escaping () -> Void) {
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { _ in handler() }) {
-            monitors.append(m)
-        }
-    }
-
-    private func addMonitor(local mask: NSEvent.EventTypeMask, handler: @escaping () -> Void) {
-        if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in handler(); return event }) {
-            monitors.append(m)
-        }
-    }
-
-    // MARK: - Mouse event handlers
+    // MARK: - Click
 
     private func onMouseDown() {
-        let loc = NSEvent.mouseLocation
-
-        if viewModel.isExpanded {
-            if expandedScreenRect.contains(loc) {
-                // 패널 안 클릭: 드래그 시작 준비 (탭인지 드래그인지는 mouseUp에서 판정)
-                mouseDownLocation = loc
-                dragStartVolume = VolumeController.getVolume()
-                isDragging = false
-            } else {
-                // 패널 밖 클릭: 즉시 축소
-                viewModel.collapse()
-            }
-        } else {
-            // 축소 상태: pill 영역 안에서만 준비
-            if pillScreenRect.contains(loc) {
-                mouseDownLocation = loc
-                dragStartVolume = VolumeController.getVolume()
-                isDragging = false
-            }
-        }
-    }
-
-    private func onMouseDragged() {
-        guard let start = mouseDownLocation else { return }
-        let loc = NSEvent.mouseLocation
-        let deltaY = Float(loc.y - start.y)
-        guard abs(deltaY) > Float(dragThreshold) else { return }
-
-        isDragging = true
-        let newVolume = dragStartVolume + deltaY / volumeSensitivity
-        VolumeController.setVolume(newVolume)
-    }
-
-    private func onMouseUp() {
-        defer {
-            mouseDownLocation = nil
-            isDragging = false
-        }
-        guard mouseDownLocation != nil, !isDragging else { return }
-
-        // 드래그 없이 뗐으면 탭으로 처리
-        // 확장 상태에서 패널 안 탭은 SwiftUI onTapGesture가 처리 → 여기선 축소 상태만
-        guard !viewModel.isExpanded else { return }
-
         let now = Date()
         guard now.timeIntervalSince(lastClickDate) > 0.3 else { return }
         lastClickDate = now
 
         let loc = NSEvent.mouseLocation
-        if pillScreenRect.contains(loc) { viewModel.expand() }
+        if viewModel.isExpanded {
+            if !expandedScreenRect.contains(loc) { viewModel.collapse() }
+        } else {
+            if pillScreenRect.contains(loc) { viewModel.expand() }
+        }
+    }
+
+    // MARK: - Scroll (볼륨 + 페이지)
+
+    private func handleScroll(_ event: NSEvent) {
+        let loc = NSEvent.mouseLocation
+        let inRange = viewModel.isExpanded
+            ? expandedScreenRect.contains(loc)
+            : pillScreenRect.contains(loc)
+        guard inRange else { return }
+
+        // 관성 스크롤(손 뗀 후 감속) 무시
+        guard event.momentumPhase == [] else { return }
+
+        let dx = event.scrollingDeltaX
+        let dy = event.scrollingDeltaY
+
+        // 제스처 시작 시 상태 리셋
+        if event.phase == .began {
+            scrollAccumX = 0
+            didSwitchPageThisGesture = false
+        }
+
+        // 세로 스크롤 → 볼륨 (위로 = 증가, dy 부호 반전)
+        if abs(dy) >= abs(dx) {
+            VolumeController.setVolume(VolumeController.getVolume() - Float(dy) * 0.004)
+            return
+        }
+
+        // 가로 스크롤 → 페이지 전환 (확장 상태, 한 제스처당 1회만)
+        guard viewModel.isExpanded, !didSwitchPageThisGesture else { return }
+        scrollAccumX += dx
+
+        if scrollAccumX < -60 {
+            viewModel.expandedPage = min(viewModel.expandedPage + 1, 2)
+            scrollAccumX = 0
+            didSwitchPageThisGesture = true
+        } else if scrollAccumX > 60 {
+            viewModel.expandedPage = max(viewModel.expandedPage - 1, 0)
+            scrollAccumX = 0
+            didSwitchPageThisGesture = true
+        }
     }
 
     private var pillScreenRect: NSRect {
