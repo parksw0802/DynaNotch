@@ -3,9 +3,16 @@ import SwiftUI
 
 final class NotchWindowController: NSWindowController {
     private let viewModel = NotchViewModel()
-    private var globalMonitor: Any?
+    private var monitors: [Any] = []
     private var lastClickDate: Date = .distantPast
     private var musicModule: MusicModule?
+
+    // 드래그 상태
+    private var mouseDownLocation: NSPoint? = nil
+    private var dragStartVolume: Float = 0
+    private var isDragging = false
+    private let dragThreshold: CGFloat = 4      // 이 픽셀 이상 이동하면 드래그로 판정
+    private let volumeSensitivity: Float = 200  // 드래그 픽셀 당 볼륨 변화 분모
 
     init() {
         let panel = NotchPanel()
@@ -31,7 +38,7 @@ final class NotchWindowController: NSWindowController {
     required init?(coder: NSCoder) { nil }
 
     deinit {
-        if let m = globalMonitor { NSEvent.removeMonitor(m) }
+        monitors.forEach { NSEvent.removeMonitor($0) }
     }
 
     // MARK: - Expansion observation
@@ -54,29 +61,84 @@ final class NotchWindowController: NSWindowController {
         window?.ignoresMouseEvents = !viewModel.isExpanded
     }
 
-    // MARK: - Click detection
+    // MARK: - Event monitors (click + drag)
 
     private func setupClickMonitor() {
-        // 축소 상태: global monitor로 pill 클릭 감지
-        // 확장 상태: global monitor로 패널 외부 클릭 → 축소
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-            self?.handleClick()
+        // 축소 상태(ignoresMouseEvents=true): 이벤트가 다른 프로세스로 감 → global monitor
+        // 확장 상태(ignoresMouseEvents=false): 이벤트가 우리 프로세스로 감 → local monitor
+        addMonitor(global: .leftMouseDown)    { [weak self] in self?.onMouseDown() }
+        addMonitor(global: .leftMouseDragged) { [weak self] in self?.onMouseDragged() }
+        addMonitor(global: .leftMouseUp)      { [weak self] in self?.onMouseUp() }
+        addMonitor(local:  .leftMouseDown)    { [weak self] in self?.onMouseDown() }
+        addMonitor(local:  .leftMouseDragged) { [weak self] in self?.onMouseDragged() }
+        addMonitor(local:  .leftMouseUp)      { [weak self] in self?.onMouseUp() }
+    }
+
+    private func addMonitor(global mask: NSEvent.EventTypeMask, handler: @escaping () -> Void) {
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { _ in handler() }) {
+            monitors.append(m)
         }
     }
 
-    private func handleClick() {
+    private func addMonitor(local mask: NSEvent.EventTypeMask, handler: @escaping () -> Void) {
+        if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in handler(); return event }) {
+            monitors.append(m)
+        }
+    }
+
+    // MARK: - Mouse event handlers
+
+    private func onMouseDown() {
+        let loc = NSEvent.mouseLocation
+
+        if viewModel.isExpanded {
+            if expandedScreenRect.contains(loc) {
+                // 패널 안 클릭: 드래그 시작 준비 (탭인지 드래그인지는 mouseUp에서 판정)
+                mouseDownLocation = loc
+                dragStartVolume = VolumeController.getVolume()
+                isDragging = false
+            } else {
+                // 패널 밖 클릭: 즉시 축소
+                viewModel.collapse()
+            }
+        } else {
+            // 축소 상태: pill 영역 안에서만 준비
+            if pillScreenRect.contains(loc) {
+                mouseDownLocation = loc
+                dragStartVolume = VolumeController.getVolume()
+                isDragging = false
+            }
+        }
+    }
+
+    private func onMouseDragged() {
+        guard let start = mouseDownLocation else { return }
+        let loc = NSEvent.mouseLocation
+        let deltaY = Float(loc.y - start.y)
+        guard abs(deltaY) > Float(dragThreshold) else { return }
+
+        isDragging = true
+        let newVolume = dragStartVolume + deltaY / volumeSensitivity
+        VolumeController.setVolume(newVolume)
+    }
+
+    private func onMouseUp() {
+        defer {
+            mouseDownLocation = nil
+            isDragging = false
+        }
+        guard mouseDownLocation != nil, !isDragging else { return }
+
+        // 드래그 없이 뗐으면 탭으로 처리
+        // 확장 상태에서 패널 안 탭은 SwiftUI onTapGesture가 처리 → 여기선 축소 상태만
+        guard !viewModel.isExpanded else { return }
+
         let now = Date()
         guard now.timeIntervalSince(lastClickDate) > 0.3 else { return }
         lastClickDate = now
 
         let loc = NSEvent.mouseLocation
-        if viewModel.isExpanded {
-            // 확장 중: 패널 밖 클릭이면 축소 (패널 안 클릭은 패널이 직접 처리)
-            if !expandedScreenRect.contains(loc) { viewModel.collapse() }
-        } else {
-            // 축소 중: pill 범위 클릭이면 확장
-            if pillScreenRect.contains(loc) { viewModel.expand() }
-        }
+        if pillScreenRect.contains(loc) { viewModel.expand() }
     }
 
     private var pillScreenRect: NSRect {
