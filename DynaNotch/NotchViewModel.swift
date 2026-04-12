@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import AppKit
 
 @Observable
 final class NotchViewModel {
@@ -24,7 +25,15 @@ final class NotchViewModel {
     }
 
     var leftState: LeftState = .idle
+    var musicArtwork: NSImage? = nil
+    var musicColors: [Color] = [.white]
+    var musicIsPlaying: Bool = false
     var rightContent: RightContent = .weather(temp: "--°")
+
+    // MusicModule이 주입하는 재생 컨트롤 클로저
+    var playPauseAction: (() -> Void)?
+    var previousAction:  (() -> Void)?
+    var nextAction:      (() -> Void)?
 
     func expand() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {

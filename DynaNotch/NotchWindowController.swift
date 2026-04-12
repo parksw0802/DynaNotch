@@ -5,6 +5,7 @@ final class NotchWindowController: NSWindowController {
     private let viewModel = NotchViewModel()
     private var globalMonitor: Any?
     private var lastClickDate: Date = .distantPast
+    private var musicModule: MusicModule?
 
     init() {
         let panel = NotchPanel()
@@ -23,6 +24,8 @@ final class NotchWindowController: NSWindowController {
         panel.ignoresMouseEvents = true
 
         setupClickMonitor()
+        observeExpansion()
+        musicModule = MusicModule(viewModel: viewModel)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -31,10 +34,31 @@ final class NotchWindowController: NSWindowController {
         if let m = globalMonitor { NSEvent.removeMonitor(m) }
     }
 
+    // MARK: - Expansion observation
+
+    /// @Observable 속성 변화를 AppKit 레이어에서 감지 — 재귀 호출로 계속 구독
+    private func observeExpansion() {
+        withObservationTracking {
+            let _ = viewModel.isExpanded
+        } onChange: { [weak self] in
+            DispatchQueue.main.async {
+                self?.updateMousePassthrough()
+                self?.observeExpansion()
+            }
+        }
+    }
+
+    private func updateMousePassthrough() {
+        // 확장 시: ignoresMouseEvents = false → 버튼 클릭 가능
+        // 축소 시: ignoresMouseEvents = true  → 메뉴바 클릭 통과
+        window?.ignoresMouseEvents = !viewModel.isExpanded
+    }
+
     // MARK: - Click detection
 
     private func setupClickMonitor() {
-        // 패널은 항상 ignoresMouseEvents = true이므로 클릭은 항상 global monitor로 감지
+        // 축소 상태: global monitor로 pill 클릭 감지
+        // 확장 상태: global monitor로 패널 외부 클릭 → 축소
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             self?.handleClick()
         }
@@ -46,10 +70,13 @@ final class NotchWindowController: NSWindowController {
         lastClickDate = now
 
         let loc = NSEvent.mouseLocation
-        let activeRect = viewModel.isExpanded ? expandedScreenRect : pillScreenRect
-        guard activeRect.contains(loc) else { return }
-
-        if viewModel.isExpanded { viewModel.collapse() } else { viewModel.expand() }
+        if viewModel.isExpanded {
+            // 확장 중: 패널 밖 클릭이면 축소 (패널 안 클릭은 패널이 직접 처리)
+            if !expandedScreenRect.contains(loc) { viewModel.collapse() }
+        } else {
+            // 축소 중: pill 범위 클릭이면 확장
+            if pillScreenRect.contains(loc) { viewModel.expand() }
+        }
     }
 
     private var pillScreenRect: NSRect {
@@ -76,5 +103,10 @@ private final class NotchHostingView: NSHostingView<NotchOverlayView> {
 
     override var safeAreaInsets: NSEdgeInsets { .init() }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return super.hitTest(point)
+    }
+
+    // 비활성 윈도우 상태에서도 첫 번째 클릭을 바로 처리 (기본값 false → 첫 클릭이 활성화에만 쓰임)
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
