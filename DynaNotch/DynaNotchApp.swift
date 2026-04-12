@@ -1,17 +1,15 @@
-//
-//  DynaNotchApp.swift
-//  DynaNotch
-//
-//  Created by qkrtpdnd0802 on 4/12/26.
-//
-
 import SwiftUI
 
 @main
 struct DynaNotchApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra {
+            Button("DynaNotch 종료") { NSApp.terminate(nil) }
+        } label: {
+            Image(systemName: "circle.fill")
+                .imageScale(.small)
         }
     }
 }
