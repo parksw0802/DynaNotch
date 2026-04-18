@@ -7,10 +7,18 @@ final class NotchWindowController: NSWindowController {
     private var lastClickDate: Date = .distantPast
     private var musicModule: MusicModule?
     private var screenshotModule: ScreenshotModule?
+    private var weatherModule: WeatherModule?
+    private var downloadModule: DownloadModule?
 
     // 스크롤 페이지 전환 상태
     private var scrollAccumX: CGFloat = 0
     private var didSwitchPageThisGesture = false
+    private var lastPageSwitchDate: Date = .distantPast
+    // 날씨 페이지: 제스처 시작 시점의 leading edge 여부를 고정
+    private var weatherLeadingEdgeAtGestureStart = false
+    // 볼륨 존 너비 (expandedScreenRect 기준 우측 끝에서 이 너비만큼)
+    private let volumeZoneWidth: CGFloat = 95
+    private var volumeSyncTimer: Timer?
 
     init() {
         let panel = NotchPanel()
@@ -29,15 +37,25 @@ final class NotchWindowController: NSWindowController {
         panel.ignoresMouseEvents = true
 
         setupClickMonitor()
+        setupScrollViewObservers()
         observeExpansion()
         musicModule = MusicModule(viewModel: viewModel)
         screenshotModule = ScreenshotModule(viewModel: viewModel)
+        weatherModule = WeatherModule(viewModel: viewModel)
+        downloadModule = DownloadModule(viewModel: viewModel)
+
+        // 볼륨 초기값 + 주기적 동기 (외부 변경 반영)
+        viewModel.currentVolume = VolumeController.getVolume()
+        volumeSyncTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.viewModel.currentVolume = VolumeController.getVolume()
+        }
     }
 
     required init?(coder: NSCoder) { nil }
 
     deinit {
         monitors.forEach { NSEvent.removeMonitor($0) }
+        volumeSyncTimer?.invalidate()
     }
 
     // MARK: - Expansion observation
@@ -78,6 +96,42 @@ final class NotchWindowController: NSWindowController {
         }) { monitors.append(m) }
     }
 
+    // MARK: - NSScrollView leading-edge tracking
+
+    private func setupScrollViewObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(weatherScrollWillBegin(_:)),
+            name: NSScrollView.willStartLiveScrollNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(weatherScrollDidScroll(_:)),
+            name: NSScrollView.didLiveScrollNotification,
+            object: nil
+        )
+    }
+
+    /// 날씨 가로 스크롤뷰인지 판단 — 콘텐츠 너비가 뷰 너비보다 충분히 커야 함
+    private func isWeatherScrollView(_ scrollView: NSScrollView) -> Bool {
+        guard let docView = scrollView.documentView else { return false }
+        return docView.frame.width > scrollView.bounds.width + 10
+    }
+
+    @objc private func weatherScrollWillBegin(_ notification: Notification) {
+        guard let sv = notification.object as? NSScrollView,
+              isWeatherScrollView(sv) else { return }
+        // 제스처 시작 시점의 스크롤 위치로 leading edge 여부 결정
+        weatherLeadingEdgeAtGestureStart = sv.documentVisibleRect.origin.x <= 5
+    }
+
+    @objc private func weatherScrollDidScroll(_ notification: Notification) {
+        guard let sv = notification.object as? NSScrollView,
+              isWeatherScrollView(sv) else { return }
+        viewModel.weatherScrollAtLeadingEdge = sv.documentVisibleRect.origin.x <= 5
+    }
+
     // MARK: - Click
 
     private func onMouseDown() {
@@ -108,30 +162,44 @@ final class NotchWindowController: NSWindowController {
         let dx = event.scrollingDeltaX
         let dy = event.scrollingDeltaY
 
-        // 제스처 시작 시 상태 리셋
+        // 제스처 시작 시 상태 리셋 (weatherLeadingEdgeAtGestureStart는 NSScrollView 알림이 설정)
         if event.phase == .began {
             scrollAccumX = 0
             didSwitchPageThisGesture = false
         }
 
-        // 세로 스크롤 → 볼륨 (위로 = 증가, dy 부호 반전)
+        // 세로 스크롤 → 볼륨 (음악 탭 볼륨 존 전용)
         if abs(dy) >= abs(dx) {
-            VolumeController.setVolume(VolumeController.getVolume() - Float(dy) * 0.004)
+            if viewModel.isExpanded && viewModel.expandedPage == 0 && volumeZoneScreenRect.contains(loc) {
+                let newVol = VolumeController.getVolume() - Float(dy) * 0.004
+                VolumeController.setVolume(newVol)
+                viewModel.currentVolume = max(0, min(1, newVol))
+            }
             return
         }
 
-        // 가로 스크롤 → 페이지 전환 (확장 상태, 한 제스처당 1회만)
-        guard viewModel.isExpanded, !didSwitchPageThisGesture else { return }
+        // 가로 스크롤 → 페이지 전환 (확장 상태, 한 제스처당 1회 + 0.6초 쿨다운)
+        guard viewModel.isExpanded,
+              !didSwitchPageThisGesture,
+              Date().timeIntervalSince(lastPageSwitchDate) > 0.6 else { return }
+
         scrollAccumX += dx
 
-        if scrollAccumX < -60 {
+        if scrollAccumX < -80 {
             viewModel.expandedPage = min(viewModel.expandedPage + 1, 2)
             scrollAccumX = 0
             didSwitchPageThisGesture = true
-        } else if scrollAccumX > 60 {
-            viewModel.expandedPage = max(viewModel.expandedPage - 1, 0)
-            scrollAccumX = 0
-            didSwitchPageThisGesture = true
+            lastPageSwitchDate = Date()
+        } else if scrollAccumX > 80 {
+            // 날씨 페이지(2): 제스처가 왼쪽 끝에서 시작했을 때만 전환 허용
+            if viewModel.expandedPage == 2 && !weatherLeadingEdgeAtGestureStart {
+                scrollAccumX = 0  // 무시 — 이 제스처로는 절대 전환 안 함
+            } else {
+                viewModel.expandedPage = max(viewModel.expandedPage - 1, 0)
+                scrollAccumX = 0
+                didSwitchPageThisGesture = true
+                lastPageSwitchDate = Date()
+            }
         }
     }
 
@@ -150,6 +218,15 @@ final class NotchWindowController: NSWindowController {
         return NSRect(x: panel.frame.midX - w / 2,
                       y: panel.frame.maxY - h,
                       width: w, height: h)
+    }
+
+    /// 음악 탭(page 0) 볼륨 존 — expandedScreenRect 우측 끝 volumeZoneWidth 픽셀
+    private var volumeZoneScreenRect: NSRect {
+        let rect = expandedScreenRect
+        return NSRect(x: rect.maxX - volumeZoneWidth,
+                      y: rect.minY,
+                      width: volumeZoneWidth,
+                      height: rect.height)
     }
 }
 

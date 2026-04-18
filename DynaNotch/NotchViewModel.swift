@@ -16,6 +16,7 @@ final class NotchViewModel {
         case music(title: String, artist: String)
         case terminal(running: Bool, success: Bool?)
         case screenshot
+        case download(filename: String)
     }
 
     enum RightContent {
@@ -31,6 +32,9 @@ final class NotchViewModel {
     var musicColors: [Color] = [.white]
     var musicIsPlaying: Bool = false
     var rightContent: RightContent = .weather(temp: "--°")
+    var weatherHourly: [HourlyWeather] = []
+    var weatherScrollAtLeadingEdge: Bool = true  // ScreenshotModule이 주입, 기본 true
+    var currentVolume: Float = 0.5               // VolumeController 값과 동기 (NotchWindowController가 주입)
 
     // MusicModule이 주입하는 재생 컨트롤 클로저
     var playPauseAction:    (() -> Void)?
@@ -46,6 +50,12 @@ final class NotchViewModel {
     var copyScreenshotAction: (() -> Void)? = nil
     var deleteScreenshotAction: (() -> Void)? = nil
 
+    // DownloadModule
+    var downloadedFileURL: URL? = nil
+    var copyDownloadAction: (() -> Void)? = nil
+    var keepDownloadAction: (() -> Void)? = nil
+    var deleteDownloadAction: (() -> Void)? = nil
+
     func expand() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
             isExpanded = true
@@ -56,6 +66,5 @@ final class NotchViewModel {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             isExpanded = false
         }
-        expandedPage = 0
     }
 }

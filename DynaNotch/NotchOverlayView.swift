@@ -52,9 +52,11 @@ struct NotchOverlayView: View {
         // → HStack 리딩이 항상 프레임 리딩에 고정돼 page 0이 기본으로 노출됨
         HStack(spacing: 0) {
             // Page 0 — 음악
-            HStack(alignment: .center) {
+            HStack(alignment: .center, spacing: 0) {
                 leftExpandedContent.padding(.leading, 20)
                 Spacer()
+                VolumeControlArea(volume: viewModel.currentVolume)
+                    .padding(.trailing, 12)
             }
             .frame(width: expandedWidth)
 
@@ -98,16 +100,44 @@ struct NotchOverlayView: View {
 
     @ViewBuilder
     private var weatherPage: some View {
-        // Phase 4에서 Open-Meteo API 연동 예정
-        VStack(spacing: 6) {
-            Image(systemName: "cloud")
-                .font(.system(size: 20))
-                .foregroundStyle(.white.opacity(0.3))
-            Text("날씨 준비 중")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.3))
+        if viewModel.weatherHourly.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "cloud")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white.opacity(0.3))
+                Text("날씨 정보 로딩 중")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .bottom, spacing: 0) {
+                        ForEach(viewModel.weatherHourly) { item in
+                            HourlyWeatherCell(item: item)
+                                .id(item.hour)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    if let current = viewModel.weatherHourly.first(where: { $0.isCurrentHour }) {
+                        // auto-scroll 대상이 hour 0이 아니면 즉시 false 확정 (PreferenceKey 지연 방지)
+                        viewModel.weatherScrollAtLeadingEdge = (current.hour == 0)
+                        proxy.scrollTo(current.hour, anchor: .center)
+                    }
+                }
+                // 날씨 데이터가 새로 로드될 때도 동일하게 초기화
+                .onChange(of: viewModel.weatherHourly.count) { _, _ in
+                    if let current = viewModel.weatherHourly.first(where: { $0.isCurrentHour }) {
+                        viewModel.weatherScrollAtLeadingEdge = (current.hour == 0)
+                        proxy.scrollTo(current.hour, anchor: .center)
+                    }
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Left Pill Content
@@ -137,6 +167,11 @@ struct NotchOverlayView: View {
 
         case .screenshot:
             Image(systemName: "camera.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+
+        case .download:
+            Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
         }
@@ -280,6 +315,100 @@ struct NotchOverlayView: View {
                     .buttonStyle(.plain)
                 }
             }
+        case .download(let filename):
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: downloadIcon(for: filename))
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                    Text(filename)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                HStack(spacing: 8) {
+                    // 클립보드로 복사
+                    Button {
+                        viewModel.copyDownloadAction?()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "doc.on.clipboard.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Text("Clipboard")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Downloads 폴더에 그대로 두기
+                    Button {
+                        viewModel.keepDownloadAction?()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "arrow.down.to.line")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Text("Downloads")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+
+                    // 삭제
+                    Button {
+                        viewModel.deleteDownloadAction?()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color.red.opacity(0.85))
+                            Text("Delete")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func downloadIcon(for filename: String) -> String {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "png", "jpg", "jpeg", "gif", "heic", "webp", "bmp":
+            return "photo.fill"
+        case "mp4", "mov", "avi", "mkv", "m4v":
+            return "video.fill"
+        case "mp3", "aac", "flac", "wav", "m4a":
+            return "music.note"
+        case "pdf":
+            return "doc.richtext.fill"
+        case "zip", "rar", "7z", "tar", "gz":
+            return "archivebox.fill"
+        case "dmg", "pkg":
+            return "shippingbox.fill"
+        case "swift", "py", "js", "ts", "html", "css", "json", "xml":
+            return "chevron.left.forwardslash.chevron.right"
+        default:
+            return "arrow.down.circle.fill"
         }
     }
 
@@ -406,6 +535,136 @@ private struct ArtworkView: View {
                     .frame(width: size * 0.22, height: size * 0.22)
             )
             .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+    }
+}
+
+// MARK: - VolumeControlArea
+
+private struct VolumeControlArea: View {
+    let volume: Float
+    @State private var isHovering = false
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: volumeIcon)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(isHovering ? 0.9 : 0.55))
+                .animation(.easeInOut(duration: 0.15), value: isHovering)
+
+            // 세로 볼륨 바
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.white.opacity(0.12))
+                    .frame(width: 10, height: 48)
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.white.opacity(isHovering ? 0.85 : 0.55))
+                    .frame(width: 10, height: max(5, 48 * CGFloat(volume)))
+                    .animation(.easeOut(duration: 0.08), value: volume)
+            }
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+
+            // 퍼센트 또는 스크롤 힌트
+            if isHovering {
+                Text("\(Int(volume * 100))%")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .transition(.opacity)
+            } else {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.2))
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 80)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(isHovering ? 0.1 : 0.05))
+                .animation(.easeInOut(duration: 0.2), value: isHovering)
+        )
+        .onHover { isHovering = $0 }
+    }
+
+    private var volumeIcon: String {
+        if volume == 0   { return "speaker.slash.fill" }
+        if volume < 0.34 { return "speaker.fill" }
+        if volume < 0.67 { return "speaker.wave.1.fill" }
+        return "speaker.wave.2.fill"
+    }
+}
+
+// MARK: - HourlyWeatherCell
+
+private struct HourlyWeatherCell: View {
+    let item: HourlyWeather
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: weatherIcon)
+                .font(.system(size: 11))
+                .foregroundStyle(item.isCurrentHour ? iconColor : iconColor.opacity(0.5))
+
+            Text("\(Int(item.temp.rounded()))°")
+                .font(.system(size: item.isCurrentHour ? 13 : 11,
+                              weight: item.isCurrentHour ? .semibold : .regular))
+                .foregroundStyle(item.isCurrentHour ? Color.white : Color.white.opacity(0.55))
+
+            Circle()
+                .fill(item.isCurrentHour ? Color.white : Color.clear)
+                .frame(width: 3, height: 3)
+
+            Text(hourLabel)
+                .font(.system(size: 10))
+                .foregroundStyle(item.isCurrentHour ? Color.white.opacity(0.9) : Color.white.opacity(0.4))
+        }
+        .frame(width: 36)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(item.isCurrentHour ? Color.white.opacity(0.12) : Color.clear)
+        )
+    }
+
+    private var hourLabel: String {
+        if item.hour == 0  { return "12AM" }
+        if item.hour < 12  { return "\(item.hour)AM" }
+        if item.hour == 12 { return "12PM" }
+        return "\(item.hour - 12)PM"
+    }
+
+    /// WMO weather code → SF Symbol
+    private var weatherIcon: String {
+        switch item.weatherCode {
+        case 0:           return "sun.max.fill"
+        case 1:           return "sun.min.fill"
+        case 2:           return "cloud.sun.fill"
+        case 3:           return "cloud.fill"
+        case 45, 48:      return "cloud.fog.fill"
+        case 51, 53, 55:  return "cloud.drizzle.fill"
+        case 56, 57:      return "cloud.sleet.fill"
+        case 61, 63, 65:  return "cloud.rain.fill"
+        case 66, 67:      return "cloud.sleet.fill"
+        case 71, 73, 75:  return "cloud.snow.fill"
+        case 77:          return "cloud.snow.fill"
+        case 80, 81, 82:  return "cloud.heavyrain.fill"
+        case 85, 86:      return "cloud.snow.fill"
+        case 95:          return "cloud.bolt.fill"
+        case 96, 99:      return "cloud.bolt.rain.fill"
+        default:          return "cloud.fill"
+        }
+    }
+
+    private var iconColor: Color {
+        switch item.weatherCode {
+        case 0, 1:        return .yellow
+        case 2, 3:        return Color(white: 0.8)
+        case 45, 48:      return Color(white: 0.7)
+        case 61...67, 80...82: return Color(red: 0.5, green: 0.8, blue: 1.0)
+        case 71...77, 85, 86: return Color(white: 0.9)
+        case 95...99:     return Color(red: 0.7, green: 0.85, blue: 1.0)
+        default:          return Color(white: 0.75)
+        }
     }
 }
 
