@@ -9,7 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowController = NotchWindowController()
         windowController?.window?.orderFrontRegardless()
         registerLoginItem()
-        setupMenuBarIcon()
+        // setupMenuBarIcon()
     }
 
     // MARK: - Menu bar icon
