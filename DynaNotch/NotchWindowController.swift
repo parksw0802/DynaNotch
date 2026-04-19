@@ -186,13 +186,13 @@ final class NotchWindowController: NSWindowController {
         scrollAccumX += dx
 
         if scrollAccumX < -80 {
-            viewModel.expandedPage = min(viewModel.expandedPage + 1, 2)
+            viewModel.expandedPage = min(viewModel.expandedPage + 1, 1)
             scrollAccumX = 0
             didSwitchPageThisGesture = true
             lastPageSwitchDate = Date()
         } else if scrollAccumX > 80 {
             // 날씨 페이지(2): 제스처가 왼쪽 끝에서 시작했을 때만 전환 허용
-            if viewModel.expandedPage == 2 && !weatherLeadingEdgeAtGestureStart {
+            if viewModel.expandedPage == 1 && !weatherLeadingEdgeAtGestureStart {
                 scrollAccumX = 0  // 무시 — 이 제스처로는 절대 전환 안 함
             } else {
                 viewModel.expandedPage = max(viewModel.expandedPage - 1, 0)

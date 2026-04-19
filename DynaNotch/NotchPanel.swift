@@ -7,7 +7,7 @@ class NotchPanel: NSPanel {
     // Window dimensions
     static let expandedExtraHeight: CGFloat = 110
     static let overlayWidth: CGFloat = 560
-    static let pillPadding: CGFloat = 100       // pillWidth = notchWidth + pillPadding
+    static let pillPadding: CGFloat = 110       // pillWidth = notchWidth + pillPadding
     static let expandedPanelWidth: CGFloat = 480
 
     init() {

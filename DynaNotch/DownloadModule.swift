@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CoreServices
+import SwiftUI
 
 /// ~/Downloads 폴더를 FSEvents로 감시, 새 파일이 완성되면 노치를 확장한다.
 final class DownloadModule {
@@ -109,7 +110,7 @@ final class DownloadModule {
         guard let vm = viewModel else { return }
         vm.downloadedFileURL = url
         vm.leftState = .download(filename: url.lastPathComponent)
-        vm.expandedPage = 0
+        vm.goToActionPage()
         vm.expand()
 
         autoCollapseTimer?.invalidate()
@@ -124,6 +125,7 @@ final class DownloadModule {
         if case .download = vm.leftState {
             vm.downloadedFileURL = nil
             vm.leftState = .idle
+            vm.dismissActionPage()
             vm.collapse()
         }
     }

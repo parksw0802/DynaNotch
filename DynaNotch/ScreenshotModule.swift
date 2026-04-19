@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CoreServices
+import SwiftUI
 
 /// 스크린샷 저장 디렉토리를 FSEvents로 감시한다.
 /// kqueue(DispatchSource)와 달리 atomic write / 외부 이동으로 생긴 파일도 감지된다.
@@ -117,6 +118,7 @@ final class ScreenshotModule {
         guard let vm = viewModel else { return }
         vm.screenshotURL = url
         vm.leftState = .screenshot
+        vm.goToActionPage()
         vm.expand()
 
         autoCollapseTimer?.invalidate()
@@ -126,12 +128,8 @@ final class ScreenshotModule {
     }
 
     private func autoCollapse() {
-        guard let vm = viewModel else { return }
-        if case .screenshot = vm.leftState {
-            vm.screenshotURL = nil
-            vm.leftState = .idle
-            vm.collapse()
-        }
+        guard let vm = viewModel, case .screenshot = vm.leftState else { return }
+        dismissScreenshot()
     }
 
     // MARK: - Actions
@@ -148,34 +146,34 @@ final class ScreenshotModule {
         }
     }
 
-    private func saveScreenshot(to destDir: URL) {
-        guard let vm = viewModel, let src = vm.screenshotURL else { return }
+    private func dismissScreenshot() {
+        guard let vm = viewModel else { return }
         autoCollapseTimer?.invalidate()
-        let dest = destDir.appendingPathComponent(src.lastPathComponent)
-        try? FileManager.default.moveItem(at: src, to: dest)
         vm.screenshotURL = nil
         vm.leftState = .idle
+        vm.dismissActionPage()
         vm.collapse()
+    }
+
+    private func saveScreenshot(to destDir: URL) {
+        guard let vm = viewModel, let src = vm.screenshotURL else { return }
+        let dest = destDir.appendingPathComponent(src.lastPathComponent)
+        try? FileManager.default.moveItem(at: src, to: dest)
+        dismissScreenshot()
     }
 
     private func deleteScreenshot() {
         guard let vm = viewModel, let src = vm.screenshotURL else { return }
-        autoCollapseTimer?.invalidate()
         try? FileManager.default.removeItem(at: src)
-        vm.screenshotURL = nil
-        vm.leftState = .idle
-        vm.collapse()
+        dismissScreenshot()
     }
 
     private func copyScreenshotToClipboard() {
         guard let vm = viewModel,
               let src = vm.screenshotURL,
               let image = NSImage(contentsOf: src) else { return }
-        autoCollapseTimer?.invalidate()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
-        vm.screenshotURL = nil
-        vm.leftState = .idle
-        vm.collapse()
+        dismissScreenshot()
     }
 }

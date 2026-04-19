@@ -26,6 +26,8 @@ final class NotchViewModel {
     }
 
     var expandedPage: Int = 0
+    var expandedPageAnimated: Bool = true   // false 시 페이지 전환 애니메이션 생략
+    private var previousExpandedPage: Int = 0
 
     var leftState: LeftState = .idle
     var musicArtwork: NSImage? = nil
@@ -55,6 +57,21 @@ final class NotchViewModel {
     var copyDownloadAction: (() -> Void)? = nil
     var keepDownloadAction: (() -> Void)? = nil
     var deleteDownloadAction: (() -> Void)? = nil
+
+    /// 액션 패널(page 2)로 애니메이션 없이 즉시 이동, 이전 페이지 저장
+    func goToActionPage() {
+        previousExpandedPage = expandedPage
+        expandedPageAnimated = false
+        expandedPage = 2
+        DispatchQueue.main.async { self.expandedPageAnimated = true }
+    }
+
+    /// 액션 패널에서 벗어나 이전 페이지로 애니메이션 없이 복귀
+    func dismissActionPage() {
+        expandedPageAnimated = false
+        expandedPage = previousExpandedPage
+        DispatchQueue.main.async { self.expandedPageAnimated = true }
+    }
 
     func expand() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {

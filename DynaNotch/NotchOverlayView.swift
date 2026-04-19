@@ -60,42 +60,115 @@ struct NotchOverlayView: View {
             }
             .frame(width: expandedWidth)
 
-            // Page 1 — 알림 (Phase 3 구현 예정)
-            notificationsPage.frame(width: expandedWidth)
-
-            // Page 2 — 날씨 (Phase 4 구현 예정)
+            // Page 1 — 날씨
             weatherPage.frame(width: expandedWidth)
+
+            // Page 2 — 액션 패널 (스크린샷/다운로드, 스크롤 불가·애니메이션 없이 이동)
+            actionPage.frame(width: expandedWidth)
         }
         .offset(x: -CGFloat(viewModel.expandedPage) * expandedWidth)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: viewModel.expandedPage)
-        .frame(width: expandedWidth, alignment: .leading)   // 리딩 고정 + 너비 제한
+        .animation(viewModel.expandedPageAnimated ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: viewModel.expandedPage)
+        .frame(width: expandedWidth, alignment: .leading)
         .clipped()
-        .onTapGesture {}    // 탭이 부모 collapse gesture로 전파되지 않도록 소비
+        .onTapGesture {}
         .overlay(alignment: .bottom) {
-            HStack(spacing: 5) {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .fill(i == viewModel.expandedPage ? Color.white : Color.white.opacity(0.3))
-                        .frame(width: 4, height: 4)
-                        .animation(.easeInOut(duration: 0.2), value: viewModel.expandedPage)
+            // 일반 페이지(0-1)에서만 인디케이터 표시
+            if viewModel.expandedPage < 2 {
+                HStack(spacing: 5) {
+                    ForEach(0..<2, id: \.self) { i in
+                        Circle()
+                            .fill(i == viewModel.expandedPage ? Color.white : Color.white.opacity(0.3))
+                            .frame(width: 4, height: 4)
+                            .animation(.easeInOut(duration: 0.2), value: viewModel.expandedPage)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    // MARK: - Action Page (Page 2) — 스크린샷 또는 다운로드
+
+    @ViewBuilder
+    private var actionPage: some View {
+        switch viewModel.leftState {
+        case .screenshot:
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                    Text("스크린샷 저장 위치")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                HStack(spacing: 8) {
+                    Button { viewModel.copyScreenshotAction?() } label: {
+                        actionButton(icon: "doc.on.clipboard.fill", label: "Clipboard")
+                    }
+                    .buttonStyle(.plain)
+                    if let saveDir = viewModel.screenshotSaveDir {
+                        screenshotFolderButton(label: saveDir.lastPathComponent, icon: "folder.fill", folder: saveDir)
+                    }
+                    Button { viewModel.deleteScreenshotAction?() } label: {
+                        actionButton(icon: "trash.fill", label: "Delete", tint: .red)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+        case .download:
+            let filename = viewModel.downloadedFileURL?.lastPathComponent ?? ""
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: downloadIcon(for: filename))
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                    Text(filename)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                HStack(spacing: 8) {
+                    Button { viewModel.copyDownloadAction?() } label: {
+                        actionButton(icon: "doc.on.clipboard.fill", label: "Clipboard")
+                    }
+                    .buttonStyle(.plain)
+                    Button { viewModel.keepDownloadAction?() } label: {
+                        actionButton(icon: "arrow.down.to.line", label: "Downloads")
+                    }
+                    .buttonStyle(.plain)
+                    Button { viewModel.deleteDownloadAction?() } label: {
+                        actionButton(icon: "trash.fill", label: "Delete", tint: .red)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+        default:
+            EmptyView()
         }
     }
 
     @ViewBuilder
-    private var notificationsPage: some View {
-        // Phase 3에서 Slack / 카카오톡 알림 구현 예정
-        VStack(spacing: 6) {
-            Image(systemName: "bell.slash")
-                .font(.system(size: 20))
-                .foregroundStyle(.white.opacity(0.3))
-            Text("알림 없음")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.3))
+    private func actionButton(icon: String, label: String, tint: Color = .white) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(tint.opacity(0.85))
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.7))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     @ViewBuilder
@@ -256,137 +329,17 @@ struct NotchOverlayView: View {
                     .foregroundStyle(.white)
             }
 
-        case .screenshot:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white)
-                    Text("스크린샷 저장 위치")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-
-                HStack(spacing: 8) {
-                    // 클립보드로 복사
-                    Button {
-                        viewModel.copyScreenshotAction?()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "doc.on.clipboard.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.white.opacity(0.85))
-                            Text("Clipboard")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-
-                    // 기본 저장 경로 (com.apple.screencapture 설정값)
-                    if let saveDir = viewModel.screenshotSaveDir {
-                        screenshotFolderButton(
-                            label: saveDir.lastPathComponent,
-                            icon: "folder.fill",
-                            folder: saveDir
-                        )
-                    }
-                    // 삭제
-                    Button {
-                        viewModel.deleteScreenshotAction?()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "trash.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(Color.red.opacity(0.85))
-                            Text("Delete")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
+        case .screenshot, .download:
+            // 전용 페이지(2, 3)에서 표시되므로 여기서는 idle과 동일하게 처리
+            VStack(spacing: 6) {
+                Image(systemName: "music.note.slash")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white.opacity(0.3))
+                Text("재생 중인 음악 없음")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.3))
             }
-        case .download(let filename):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: downloadIcon(for: filename))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white)
-                    Text(filename)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                HStack(spacing: 8) {
-                    // 클립보드로 복사
-                    Button {
-                        viewModel.copyDownloadAction?()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "doc.on.clipboard.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.white.opacity(0.85))
-                            Text("Clipboard")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Downloads 폴더에 그대로 두기
-                    Button {
-                        viewModel.keepDownloadAction?()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "arrow.down.to.line")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.white.opacity(0.85))
-                            Text("Downloads")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-
-                    // 삭제
-                    Button {
-                        viewModel.deleteDownloadAction?()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "trash.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(Color.red.opacity(0.85))
-                            Text("Delete")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
