@@ -225,7 +225,7 @@ struct NotchOverlayView: View {
 
         case .music:
             if viewModel.musicIsPlaying, let artwork = viewModel.musicArtwork {
-                ArtworkView(image: artwork, size: 18)
+                ArtworkView(image: artwork, size: 22)
             } else {
                 Circle()
                     .fill(Color.white.opacity(0.2))
