@@ -480,14 +480,8 @@ private struct ArtworkView: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(
-                // CD 중앙 구멍
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: size * 0.22, height: size * 0.22)
-            )
-            .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.25).stroke(Color.white.opacity(0.15), lineWidth: 0.5))
     }
 }
 
